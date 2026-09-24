@@ -1,0 +1,82 @@
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true }, 
+}
+
+func get_operator_request () {
+
+
+}
+
+
+func main() {
+	r := gin.Default()
+
+	// AGENT ENDPOINT
+	// agent task/input
+	r.GET("/api/agent/poll", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "no_tasks",
+		})
+	})
+	
+	// agent output	
+	r.POST("/api/agent/output", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "no_tasks",
+		})
+	})
+
+	// direct shell acess with websocket
+	r.GET("/ws/agent/dirh", func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			// Legge il comando inviato dalla CLI
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			
+			// Risponde o inoltra
+			conn.WriteMessage(websocket.TextMessage, []byte("Echo: "+string(msg)))
+		}
+	})
+
+
+
+	// OPERATOR ENDPOINT
+	// Endpoint WebSocket per la CLI dell'operatore
+	r.GET("/ws/operator", func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			
+			conn.WriteMessage(websocket.TextMessage, []byte("Echo: "+string(msg)))
+		}
+	})
+
+	fmt.Println("[*] starting server")
+	r.Run(":8080")
+}
