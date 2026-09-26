@@ -4,29 +4,28 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
 
-func handleOperator(w http.ResponseWriter, r *http.Request) {
-	// Accetta la connessione WebSocket (per i lab disabilitiamo il controllo rigido dell'Origin)
+func handleOperator(c *gin.Context) {
 	opts := &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
 	}
 	
-	conn, err := websocket.Accept(w, r, opts)
+	conn, err := websocket.Accept(c.Writer, c.Request, opts)
 	if err != nil {
-		log.Printf("Errore durante l'handshake WebSocket: %v", err)
+		log.Printf("Error while handshake WebSocket: %v", err)
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "Chiusura sessione")
+	defer conn.Close(websocket.StatusNormalClosure, "Closing session")
 
-	log.Println("[+] CLI Operatore connessa con successo!")
+	log.Println("[*] operator connected with success!")
 
-	ctx := r.Context()
+	ctx := c.Request.Context()
 
 	for {
-		// Legge un messaggio JSON inviato dalla CLI
 		var msg map[string]interface{}
 		err := wsjson.Read(ctx, conn, &msg)
 		if err != nil {
@@ -36,25 +35,51 @@ func handleOperator(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("[Comando ricevuto] -> Azione: %v, Arg: %v", msg["action"], msg["data"])
 
-		// Esempio di risposta immediata indietro alla CLI
 		response := map[string]string{
 			"status": "success",
 			"output": "Comando ricevuto dal server e in elaborazione...",
 		}
 		err = wsjson.Write(ctx, conn, response)
 		if err != nil {
-			log.Printf("[-] Errore nell'invio della risposta: %v", err)
+			log.Printf("[-] error sending msg back: %v", err)
 			break
 		}
 	}
 }
 
 func main() {
-	http.HandleFunc("/ws/operator", handleOperator)
+	r := gin.Default()
+
+	port := ":8080"
+
+	//operator enpoint 
+	//cli endpoint with ws
+	r.GET("/ws/operator", handleOperator)
+
+
+	//agent endpoints--------
+	//direct shell access with ws
+	r.GET("/api/ws/dirsh", handleOperator)
 	
-	log.Println("[*] Server C&C in ascolto sulla porta 8080...")
-	err := http.ListenAndServe(":8080", nil)
+	//task poll ep
+	r.GET("/api/agent/poll", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "no_tasks",
+			"command": "",
+		})
+	})
+
+	//command output ep
+	r.POST("/api/agent/output", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "received",
+		})
+	})
+
+	log.Printf("[*] ally-c2 listening on %s...", port)
+	
+	err := r.Run(port)
 	if err != nil {
-		log.Fatalf("Errore critico del server: %v", err)
+		log.Fatalf("Error: critical server error: %v", err)
 	}
 }

