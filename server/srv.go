@@ -3,11 +3,29 @@ package main
 import (
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 )
+
+
+//single active agent strcut
+type AgentSession struct {
+	ID          string    `json:"id"`
+	LastSeen    time.Time `json:"last_seen"`
+	TaskQueue   []string  `json:"task_queue"`   // agent commands queue
+	OutputQueue []string  `json:"output_queue"` // latest agent ouput
+}
+
+//map of all the agents
+var (
+	clients = make(map[string]*AgentSession)
+	mu      sync.Mutex
+)
+
 
 func handleOperator(c *gin.Context) {
 	opts := &websocket.AcceptOptions{
@@ -29,15 +47,15 @@ func handleOperator(c *gin.Context) {
 		var msg map[string]interface{}
 		err := wsjson.Read(ctx, conn, &msg)
 		if err != nil {
-			log.Printf("[-] CLI disconnessa o errore di lettura: %v", err)
+			log.Printf("[-] CLI-CLIENT disconnected: %v", err)
 			break
 		}
 
-		log.Printf("[Comando ricevuto] -> Azione: %v, Arg: %v", msg["action"], msg["data"])
+		log.Printf("[Command recived] -> Action: %v, Arg: %v", msg["action"], msg["data"])
 
 		response := map[string]string{
 			"status": "success",
-			"output": "Comando ricevuto dal server e in elaborazione...",
+			"output": "Command recived in elaboration fase",
 		}
 		err = wsjson.Write(ctx, conn, response)
 		if err != nil {

