@@ -28,7 +28,47 @@ var (
 
 
 
+
+
 //cli/operator endpoint
+
+var (
+    eventConn   *websocket.Conn
+    eventConnMu sync.Mutex
+)
+
+// handleEvents ep for output ws
+func handleEvents(c *gin.Context) {
+    opts := &websocket.AcceptOptions{
+        InsecureSkipVerify: true,
+    }
+    conn, err := websocket.Accept(c.Writer, c.Request, opts)
+    if err != nil {
+        return
+    }
+    defer conn.Close(websocket.StatusNormalClosure, "Closing")
+
+    eventConnMu.Lock()
+    eventConn = conn
+    eventConnMu.Unlock()
+
+    defer func() {
+        eventConnMu.Lock()
+        eventConn = nil
+        eventConnMu.Unlock()
+    }()
+
+    ctx := c.Request.Context()
+    for {
+        var dummy map[string]interface{}
+        err := wsjson.Read(ctx, conn, &dummy)
+        if err != nil {
+            break
+        }
+    }
+}
+
+
 func handleOperator(c *gin.Context) {
 	opts := &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -121,6 +161,7 @@ func main() {
 	port := ":8080"
 
 	// operator ep
+	r.GET("/ws/events", handleEvents)
 	r.GET("/ws/operator", handleOperator)
 
 
@@ -188,18 +229,17 @@ func main() {
 
 		log.Printf("\n[Output ricevuto dall'agente %s]:\n%s\n", req.ID, req.Output)
 
-		operatorConnMu.Lock()
-		if operatorConn != nil {
+		eventConnMu.Lock()
+		if eventConn != nil {
 			ctx := c.Request.Context()
 			pushMsg := map[string]string{
-				"type":   "agent_output",
+				"type":     "agent_output",
 				"agent_id": req.ID,
-				"output": req.Output,
+				"output":   req.Output,
 			}
-			//send output with ws
-			_ = wsjson.Write(ctx, operatorConn, pushMsg)
+			_ = wsjson.Write(ctx, eventConn, pushMsg)
 		}
-		operatorConnMu.Unlock()
+		eventConnMu.Unlock()
 
 		c.JSON(http.StatusOK, gin.H{"status": "received"})
 	})

