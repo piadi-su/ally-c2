@@ -2,5 +2,6 @@ cliclient/venv/
 server_py/venv/
 server_py
 old_go_cli/
+test/
 todo.md
 

@@ -132,7 +132,7 @@ func handleOperator(c *gin.Context) {
 			clients[agentID].TaskQueue = append(clients[agentID].TaskQueue, command)
 			mu.Unlock()
 
-			log.Printf("[+] Task '%s' accodato per l'agente %s", command, agentID)
+			log.Printf("[+] Task '%s' accorded for agent: %s", command, agentID)
 
 			wsjson.Write(ctx, conn, map[string]string{
 				"status": "success",
@@ -249,7 +249,7 @@ func main() {
 		}
 		mu.Unlock()
 
-		log.Printf("\n[Output ricevuto dall'agente %s]:\n%s\n", req.ID, req.Output)
+		log.Printf("\n[Output form agent: %s]:\n%s\n", req.ID, req.Output)
 
 		eventConnMu.Lock()
 		if eventConn != nil {
