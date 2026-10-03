@@ -177,7 +177,6 @@ func handleOperator(c *gin.Context) {
 func main() {
 
 	r := gin.Default()
-	port := ":8080"
 
 	// operator ep
 	r.GET("/ws/events", handleEvents)
@@ -268,11 +267,27 @@ func main() {
 
 
 
+	port := ":8080"
+	// certFile := "cert.pem"
+	//    keyFile := "key.pem"
 
 	// connection error error 
 	log.Printf("[*] ally-c2 server (Go) listening on %s...", port)
+
+
+	// #### uncomment this if u want to use https #####
+	// err := r.RunTLS(port, certFile, keyFile)
+	//    if err != nil {
+	//        log.Fatalf("Error: critical server error: %v", err)
+	//    }
+
+
+
+	// #### uncomment this if u want to use http #####
+
 	err := r.Run(port)
 	if err != nil {
 		log.Fatalf("Error: critical server error: %v", err)
 	}
+
 }

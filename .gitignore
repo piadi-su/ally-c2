@@ -4,4 +4,5 @@ server_py
 old_go_cli/
 test/
 todo.md
-
+server/cert.pem
+server/key.pem

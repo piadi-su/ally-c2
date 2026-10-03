@@ -4,6 +4,7 @@ import json
 import websockets
 import os
 import base64
+import ssl
 
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -113,6 +114,8 @@ DOWNLOAD_DESTINATIONS = {}
 async def event_listener(event_url):
     try:
         print(f"\n[DEBUG] connect to channer events: {event_url}")
+        # use websockets.connect(event_url,ssl=ssl_context)
+        # async with websockets.connect(event_url,ssl=ssl_context) as ws:
         async with websockets.connect(event_url) as ws:
             print(f"[DEBUG] ")
             while True:
@@ -292,6 +295,8 @@ async def main(server_url, event_url):
     session = PromptSession()
 
     try: 
+        #use websockets.connect(server_url,ssl=ssl_context) for tls 
+        # async with websockets.connect(server_url,ssl=ssl_context) as websocket:
         async with websockets.connect(server_url) as websocket:
             asyncio.create_task(event_listener(event_url)) 
 
@@ -359,6 +364,11 @@ async def main(server_url, event_url):
 
 
 if __name__ == "__main__":
+
+    #ssl context
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
 
     server_url = "ws://192.168.1.172:8080/ws/operator"
     events_url= "ws://192.168.1.172:8080/ws/events"

