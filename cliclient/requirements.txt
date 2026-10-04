@@ -1,3 +1,2 @@
-prompt_toolkit==3.0.53
-wcwidth==0.9.1
-websockets==17.1
+websockets
+prompt_toolkit

