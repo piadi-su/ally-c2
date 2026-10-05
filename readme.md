@@ -96,7 +96,7 @@ you also need to uncomment certain part of the code
 
 ```
 
->ally_cli.py
+> cliclient/ally_cli.py
 ```python
     
     async def event_listener(event_url):
