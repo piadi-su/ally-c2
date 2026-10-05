@@ -12,13 +12,13 @@
 
 ```
 
-ally-c2 is an open source closs platform c2 framework
+ally-c2 is an open source cross platform c2 framework
 that is made to be light weight and customizable
 
 ## structure
 in ally we have a separate server and cli based client
 that connects to the server via ws/wss,
-so you che host the server where you want
+so you can host the server where you want
 
 ally support multi operator mode
 so you can work with a team the authentication
